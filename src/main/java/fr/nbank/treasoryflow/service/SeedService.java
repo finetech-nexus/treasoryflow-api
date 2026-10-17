@@ -43,6 +43,7 @@ import fr.nbank.treasoryflow.persist.TreasuryStore;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,9 +56,11 @@ public class SeedService implements CommandLineRunner {
             "Profil de liquidité du périmètre tunisien de Nexus Bank. Les pondérations restent à valider sur les textes consolidés. Ce profil n'est pas une certification réglementaire.";
 
     private final TreasuryStore store;
+    private final boolean workbook;
 
-    public SeedService(TreasuryStore store) {
+    public SeedService(TreasuryStore store, @Value("${treasoryflow.seed.workbook:false}") boolean workbook) {
         this.store = store;
+        this.workbook = workbook;
     }
 
     @Override
@@ -69,6 +72,9 @@ public class SeedService implements CommandLineRunner {
             tunisianBanks();
             cashServices();
             platform();
+            if (!workbook) {
+                clearWorkbook();
+            }
             store.flush();
             return;
         }
@@ -96,16 +102,27 @@ public class SeedService implements CommandLineRunner {
         product("REPO", "Pension livrée", false);
         product("REVERSE_REPO", "Pension livrée inverse", false);
         rate();
+        scope();
+        ruleTn();
+        ruleLcr();
+        ruleNsfr();
+        limit();
+        if (workbook) {
+            workbook();
+        }
+        cashServices();
+        platform();
+        store.flush();
+    }
+
+    private void workbook() {
         position("POS-TN-BCT-BOOK", "TN-BANK", "TN-BCT-TND", "TND", PositionKind.BOOKED, "500000000.00", null, "CORE");
         position("POS-TN-BCT-AVL", "TN-BANK", "TN-BCT-TND", "TND", PositionKind.AVAILABLE, "500000000.00", null, "CORE");
         position("POS-TN-IC", "TN-BANK", "TN-NOSTRO-EUR", "EUR", PositionKind.AVAILABLE, "1000000.00", "IC-2026-001", "TMS");
         position("POS-EU-CASH-BOOK", "EU-BANK", "EU-TARGET-EUR", "EUR", PositionKind.BOOKED, "5000000.00", null, "CORE");
         position("POS-EU-CASH-AVL", "EU-BANK", "EU-TARGET-EUR", "EUR", PositionKind.AVAILABLE, "5000000.00", null, "CORE");
         position("POS-EU-IC", "EU-BANK", "EU-TARGET-EUR", "EUR", PositionKind.AVAILABLE, "-1000000.00", "IC-2026-001", "TMS");
-        scope();
-        ruleTn();
-        ruleLcr();
-        ruleNsfr();
+        intercompany();
         item("TN-BANK", "TN_LIQUIDITY_STOCK", "ASSET", "CASH_BCT", "TND", "500000000.00", "ACC:TN-BCT-TND");
         item("TN-BANK", "TN_LIQUIDITY_STOCK", "ASSET", "SOVEREIGN_TN", "TND", "200000000.00", "BOOK:BT-TN");
         item("TN-BANK", "TN_LIQUIDITY_STOCK", "ASSET", "IB_PLACEMENT_LE_1M", "TND", "100000000.00", "BOOK:IB-TN");
@@ -131,12 +148,9 @@ public class SeedService implements CommandLineRunner {
         classification.setBucket("CASH_BCT");
         classification.setValidFrom(LocalDate.of(2014, 12, 16));
         store.insert(classification);
-        limit();
         deal();
         flow("FLOW-EU-FUND", "EU-BANK", "EU-TARGET-EUR", "EUR", LocalDate.of(2026, 10, 20), "3000000.00", FlowClass.ESTIMATED, true, "Tirage de financement annulable");
         flow("FLOW-EU-OUT", "EU-BANK", "EU-TARGET-EUR", "EUR", LocalDate.of(2026, 10, 22), "-10000000.00", FlowClass.CONTRACTUAL, false, "Échéance de financement");
-        cashServices();
-        platform();
         movement("MV-MATCH", "REF-EU-MM-1", "7000000.00");
         movement("MV-ORPHAN", "ORPHAN-1", "100.00");
         AuditEvent event = new AuditEvent();
@@ -148,7 +162,40 @@ public class SeedService implements CommandLineRunner {
         event.setSubjectId("GRP-TN-EU");
         event.setDetail("Référentiel Nexus Bank et place bancaire tunisienne");
         store.insert(event);
-        store.flush();
+    }
+
+    private void clearWorkbook() {
+        drop(IntercompanyFlow.class, "IC-FLOW-2026-001");
+        drop(PaymentOrder.class, "PAY-EU-SUP-1");
+        drop(TreasuryDeal.class, "DEAL-EU-MM-1");
+        drop(ForecastFlow.class, "FLOW-EU-FUND", "FLOW-EU-OUT");
+        drop(SourceMovement.class, "MV-MATCH", "MV-ORPHAN");
+        drop(CashPosition.class, "POS-TN-BCT-BOOK", "POS-TN-BCT-AVL", "POS-TN-IC", "POS-EU-CASH-BOOK", "POS-EU-CASH-AVL", "POS-EU-IC");
+        drop(LiquidityItem.class,
+                "TN-BANK-TN_LIQUIDITY_STOCK-CASH_BCT",
+                "TN-BANK-TN_LIQUIDITY_STOCK-SOVEREIGN_TN",
+                "TN-BANK-TN_LIQUIDITY_STOCK-IB_PLACEMENT_LE_1M",
+                "TN-BANK-TN_LIQUIDITY_STOCK-DEMAND_DEPOSITS",
+                "TN-BANK-TN_LIQUIDITY_STOCK-TERM_DEPOSITS_LE_1M",
+                "EU-BANK-EU_LCR-L1",
+                "EU-BANK-EU_LCR-L2A",
+                "EU-BANK-EU_LCR-L2B",
+                "EU-BANK-EU_LCR-RETAIL_STABLE",
+                "EU-BANK-EU_LCR-WHOLESALE_FINANCIAL",
+                "EU-BANK-EU_LCR-INFLOW_FINANCIAL",
+                "EU-BANK-EU_NSFR-CAPITAL_GT_1Y",
+                "EU-BANK-EU_NSFR-RETAIL_STABLE",
+                "EU-BANK-EU_NSFR-HQLA_L1",
+                "EU-BANK-EU_NSFR-LOAN_NF_GT_1Y",
+                "EU-BANK-EU_NSFR-OTHER_ASSETS");
+        drop(BucketClassification.class, "CLS-TN-CASH");
+        drop(AuditEvent.class, "AUD-SEED");
+    }
+
+    private void drop(Class<?> type, String... ids) {
+        for (String id : ids) {
+            store.find(type, id).ifPresent(store::remove);
+        }
     }
 
     private void refreshNexusIdentity() {
@@ -245,7 +292,7 @@ public class SeedService implements CommandLineRunner {
             store.insert(pool);
             poolMember("POOL-TND-BCT", "POOL-TND", "TN-BANK", "TN-BCT-TND");
         }
-        if (store.find(PaymentOrder.class, "PAY-EU-SUP-1").isEmpty()) {
+        if (workbook && store.find(PaymentOrder.class, "PAY-EU-SUP-1").isEmpty()) {
             PaymentOrder payment = new PaymentOrder();
             payment.setId("PAY-EU-SUP-1");
             payment.setEntityId("EU-BANK");
@@ -460,6 +507,9 @@ public class SeedService implements CommandLineRunner {
         store.insert(scope);
         member("MEM-TN", "TN-BANK");
         member("MEM-EU", "EU-BANK");
+    }
+
+    private void intercompany() {
         IntercompanyFlow flow = new IntercompanyFlow();
         flow.setId("IC-FLOW-2026-001");
         flow.setPairId("IC-2026-001");
