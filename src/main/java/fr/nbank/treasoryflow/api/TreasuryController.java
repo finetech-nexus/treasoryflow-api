@@ -5,6 +5,10 @@ import fr.nbank.treasoryflow.api.ApiTypes.FlowRequest;
 import fr.nbank.treasoryflow.api.ApiTypes.ImportRequest;
 import fr.nbank.treasoryflow.api.ApiTypes.ProjectRequest;
 import fr.nbank.treasoryflow.domain.BusinessClock;
+import fr.nbank.treasoryflow.domain.CashPosition;
+import fr.nbank.treasoryflow.domain.Codes.DealStatus;
+import fr.nbank.treasoryflow.domain.Codes.PositionKind;
+import fr.nbank.treasoryflow.domain.TreasuryDeal;
 import fr.nbank.treasoryflow.service.DealService;
 import fr.nbank.treasoryflow.service.DealService.SubmitOutcome;
 import fr.nbank.treasoryflow.service.ForecastService;
@@ -45,12 +49,22 @@ public class TreasuryController {
 
     @GetMapping("/api/v1/dashboard")
     public Map<String, Object> dashboard() {
+        List<CashPosition> positions = references.positions(null, BusinessClock.REPORTING_DATE);
+        List<TreasuryDeal> book = deals.list(null);
+        long available = positions.stream()
+                .filter(position -> position.getKind() == PositionKind.AVAILABLE && position.getIntercompanyPairId() == null)
+                .count();
+        long pending = book.stream().filter(deal -> deal.getStatus() == DealStatus.PENDING_VALIDATION).count();
+        long validated = book.stream().filter(deal -> deal.getStatus() == DealStatus.VALIDATED).count();
         return Map.of(
                 "asOf", BusinessClock.REPORTING_DATE,
                 "entities", references.entities(),
-                "positions", references.positions(null, BusinessClock.REPORTING_DATE),
-                "pendingDeals", deals.list(null).stream().filter(deal -> "PENDING_VALIDATION".equals(deal.getStatus().name())).count(),
-                "disclaimer", "Profils de travail Tunisie et Union européenne. Ce n'est pas une certification réglementaire.");
+                "positions", positions,
+                "availablePositions", available,
+                "pendingDeals", pending,
+                "validatedDeals", validated,
+                "published", references.publishedIndicators(),
+                "disclaimer", "Identité publique BIAT et états consolidés publiés au 31 décembre 2025. Les positions du scénario de calcul ne sont pas le bilan de la banque. Ce n'est pas une certification réglementaire.");
     }
 
     @GetMapping("/api/v1/entities")

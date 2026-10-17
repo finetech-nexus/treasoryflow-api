@@ -51,4 +51,16 @@ public class LegalEntity {
 
     @Column(length = 500)
     private String transferRestrictionReason;
+
+    @Column(length = 16)
+    private String swiftBic;
+
+    @Column(length = 180)
+    private String headquarters;
+
+    @Column(length = 80)
+    private String registration;
+
+    @Column(length = 120)
+    private String website;
 }

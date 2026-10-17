@@ -6,6 +6,7 @@ import fr.nbank.treasoryflow.domain.Codes.PositionKind;
 import fr.nbank.treasoryflow.domain.Counterparty;
 import fr.nbank.treasoryflow.domain.FxRate;
 import fr.nbank.treasoryflow.domain.LegalEntity;
+import fr.nbank.treasoryflow.domain.PublishedIndicator;
 import fr.nbank.treasoryflow.domain.TreasuryProduct;
 import fr.nbank.treasoryflow.persist.TreasuryStore;
 import fr.nbank.treasoryflow.security.Access;
@@ -25,6 +26,13 @@ public class ReferenceService {
     public ReferenceService(TreasuryStore store, Access access) {
         this.store = store;
         this.access = access;
+    }
+
+    @Transactional(readOnly = true)
+    public List<PublishedIndicator> publishedIndicators() {
+        return store.all(PublishedIndicator.class).stream()
+                .filter(row -> access.current().canSee(row.getEntityId()))
+                .toList();
     }
 
     @Transactional(readOnly = true)

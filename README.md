@@ -23,6 +23,117 @@ Le profil `local` utilise H2. Le profil par défaut attend PostgreSQL sur le por
 
 L'API exige `X-Actor`, `X-Roles` et `X-Entity-Scope`. La console les envoie depuis le sélecteur d'acteur. En production ces en-têtes viennent de la passerelle d'identité, pas du navigateur.
 
+## Environnement sandbox
+
+- Console : https://treasoryflow-app.dev.sandbox.internal.nbank.fr
+- API : https://treasoryflow-api.api.dev.sandbox.internal.nbank.fr
+- OpenAPI : https://treasoryflow-api.api.dev.sandbox.internal.nbank.fr/swagger-ui.html
+
+Kong publie ces noms. Le trafic part vers ingress-nginx, puis vers le namespace `treasury`. Au premier démarrage sur une base vide, l'API sème le jeu de référence du 17 octobre 2026.
+
+## Documentation technique
+
+### Déploiement
+
+| Composant | Namespace | Rôle |
+| --- | --- | --- |
+| `treasoryflow-app` | `treasury` | Console statique et proxy `/api/**` vers l'API |
+| `treasoryflow-api` | `treasury` | Socle, moteur de règles, consolidation |
+| `treasoryflow-postgresql` | `treasury` | PostgreSQL 16, base `treasoryflow` |
+| Routes Kong | `apim` | `treasoryflow-app-route`, `treasoryflow-api-route`, plugin `internal-only` |
+
+L'application appelle `http://treasoryflow-api:8108`. L'API écoute sur 8108, la console sur 8109. Les sondes utilisent `/actuator/health`.
+
+```mermaid
+flowchart LR
+  navigateur[Navigateur]
+  kong[Kong]
+  ingress[ingress-nginx]
+  app[treasoryflow-app]
+  api[treasoryflow-api]
+  db[(PostgreSQL)]
+  navigateur --> kong --> ingress --> app
+  app -->|"/api/**"| api
+  api --> db
+```
+
+### Flux d'une requête
+
+```mermaid
+sequenceDiagram
+  participant U as Console
+  participant A as treasoryflow-app
+  participant P as treasoryflow-api
+  participant D as PostgreSQL
+  U->>A: HTTPS /api/v1/... + X-Actor, X-Roles, X-Entity-Scope
+  A->>P: proxy vers le port 8108
+  P->>P: acteur obligatoire, rôle et périmètre d'entité
+  P->>D: lecture ou écriture
+  D-->>U: JSON
+```
+
+Sans les trois en-têtes, `/api/**` répond 401. Un auditeur ne modifie pas les données. L'approbateur d'une opération ou d'un état doit être distinct de son auteur.
+
+### Opération de trésorerie
+
+```mermaid
+flowchart TD
+  saisie[Saisie DRAFT] --> soumettre[Soumettre]
+  soumettre --> limite{Limite de contrepartie}
+  limite -->|dépassement| blocage[Écart historisé, opération reste DRAFT]
+  limite -->|dans la limite| attente[PENDING_VALIDATION]
+  attente --> quatre{Validateur distinct de l'auteur}
+  quatre -->|oui| valide[VALIDATED]
+  quatre -->|même personne| refus[Refus]
+```
+
+### Calcul réglementaire
+
+```mermaid
+flowchart TD
+  demande[Entité, formule, date] --> juridiction{Juridiction de la formule = juridiction de l'entité}
+  juridiction -->|non| rejet[Rejet]
+  juridiction -->|oui| regle[Règle PUBLISHED, dates d'effet, périmètre]
+  regle --> params[Paramètres de cette version]
+  params --> manquant{Paramètre manquant}
+  manquant -->|oui| echec[Calcul en échec]
+  manquant -->|non| resultat[Résultat, détail, empreinte et état]
+  resultat --> rejeu[Rejeu depuis l'instantané stocké]
+  resultat --> validation[Validation de l'état par un acteur de conformité distinct]
+```
+
+Une nouvelle version ferme la précédente à la veille de sa date d'effet. Elle ne réécrit pas un calcul déjà arrêté.
+
+### Import du core banking
+
+```mermaid
+flowchart TD
+  lot[Lot sourceSystem + externalBatchId] --> connu{Lot déjà connu}
+  connu -->|même empreinte| rejoue[Retour du lot, rien n'est réappliqué]
+  connu -->|empreinte différente| conflit[Conflit]
+  connu -->|nouveau| appliquer[Soldes et mouvements]
+  appliquer --> doublon{Identifiant de mouvement déjà présent}
+  doublon -->|oui| rejet[Rejet sans duplication]
+  doublon -->|non| applique[Lot APPLIED et événement d'audit]
+```
+
+### Consolidation et financement
+
+```mermaid
+flowchart TD
+  perimetre[Périmètre GRP-TN-EU] --> taux[Conversion avec taux, source et date]
+  taux --> intra{Paire intragroupe équilibrée}
+  intra -->|oui| eliminer[Élimination une seule fois]
+  intra -->|non| conserver[Conservation des jambes]
+  eliminer --> transfert{Liquidité librement transférable}
+  conserver --> transfert
+  transfert -->|entité restreinte ou flux intragroupe| bloque[Montant restreint]
+  transfert -->|entité libre| libre[Montant transférable]
+  bloque --> conseil[Recommandation de financement local]
+  libre --> conseil
+  conseil --> interdit[Aucune proposition de transfert depuis une entité restreinte]
+```
+
 ## Séparation des règles
 
 | Formule | Juridiction | Référence de travail |

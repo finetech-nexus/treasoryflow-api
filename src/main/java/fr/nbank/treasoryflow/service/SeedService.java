@@ -21,6 +21,7 @@ import fr.nbank.treasoryflow.domain.GroupConsolidationScope;
 import fr.nbank.treasoryflow.domain.IntercompanyFlow;
 import fr.nbank.treasoryflow.domain.LegalEntity;
 import fr.nbank.treasoryflow.domain.LiquidityItem;
+import fr.nbank.treasoryflow.domain.PublishedIndicator;
 import fr.nbank.treasoryflow.domain.RegulatoryChangeLog;
 import fr.nbank.treasoryflow.domain.RegulatoryJurisdiction;
 import fr.nbank.treasoryflow.domain.RegulatoryParameter;
@@ -40,8 +41,16 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Component
 public class SeedService implements CommandLineRunner {
+    static final String BIAT = "BANQUE INTERNATIONALE ARABE DE TUNISIE — BIAT";
+    static final String BIAT_SWIFT = "BIATTNTTXXX";
+    static final String BIAT_HQ = "70-72 avenue Habib Bourguiba, 1000 Tunis";
+    static final String BIAT_RC = "B 187 88 1996";
+    static final String BIAT_WEB = "https://www.biat.com.tn";
+    static final String PUBLISHED_SOURCE =
+            "États financiers consolidés BIAT au 31 décembre 2025, publiés en milliers de dinars. Montant converti en dinars. Ce n'est pas le scénario de calcul du TMS.";
+
     private static final String DISCLAIMER =
-            "Socle de travail à faire valider sur les textes consolidés et le statut de l'établissement. Ce profil n'est pas une certification réglementaire.";
+            "Identité et indicateurs publics BIAT. Les pondérations du scénario restent à valider sur les textes consolidés. Ce profil n'est pas une certification réglementaire.";
 
     private final TreasuryStore store;
 
@@ -53,22 +62,26 @@ public class SeedService implements CommandLineRunner {
     @Transactional
     public void run(String... args) {
         if (store.find(LegalEntity.class, "TN-BANK").isPresent()) {
+            refreshBiatIdentity();
+            publishedIndicators();
+            store.flush();
             return;
         }
         jurisdiction("TN", "Banque centrale de Tunisie", "Profil de liquidité et de déclaration propre aux entités tunisiennes.");
         jurisdiction("EU", "BCE et autorité nationale compétente", "LCR, NSFR et reporting prudentiel européen, sans application automatique hors UE.");
-        profile("PROF-TN", "TN-BANK", Jurisdiction.TN, "Profil BCT");
+        profile("PROF-TN", "TN-BANK", Jurisdiction.TN, "Profil BCT — BIAT");
         profile("PROF-EU", "EU-BANK", Jurisdiction.EU, "Profil CRR");
-        entity("TN-BANK", "Banque de place Tunisie", "TN", Jurisdiction.TN, "TND", "PROF-TN", true,
+        entity("TN-BANK", BIAT, "TN", Jurisdiction.TN, "TND", "PROF-TN", true,
                 "Réglementation des changes et contrainte de liquidité locale : la trésorerie tunisienne n'est pas librement transférable vers une entité européenne.");
-        entity("EU-BANK", "Banque de place Europe", "FR", Jurisdiction.EU, "EUR", "PROF-EU", false, null);
+        entity("EU-BANK", "Périmètre européen du scénario", "FR", Jurisdiction.EU, "EUR", "PROF-EU", false, null);
+        applyBiatIdentity(store.find(LegalEntity.class, "TN-BANK").orElseThrow());
         account("TN-BCT-TND", "TN-BANK", "CP-BCT", "BCT-TND-001", "TND", "BCT");
         account("TN-NOSTRO-EUR", "TN-BANK", "CP-EU-BANK", "NOSTRO-EUR-001", "EUR", "NOSTRO");
         account("EU-TARGET-EUR", "EU-BANK", "CP-BNPP", "TARGET-EUR-001", "EUR", "TARGET");
         party("CP-BCT", "Banque centrale de Tunisie", "TN");
         party("CP-BNPP", "BNP Paribas", "FR");
-        party("CP-EU-BANK", "Banque de place Europe", "FR");
-        party("CP-TN-BANK", "Banque de place Tunisie", "TN");
+        party("CP-EU-BANK", "Périmètre européen du scénario", "FR");
+        party("CP-TN-BANK", BIAT, "TN");
         product("FX_SPOT", "Change au comptant", true);
         product("FX_FORWARD", "Change à terme", true);
         product("FX_SWAP", "Swap de change", true);
@@ -116,6 +129,7 @@ public class SeedService implements CommandLineRunner {
         deal();
         flow("FLOW-EU-FUND", "EU-BANK", "EU-TARGET-EUR", "EUR", LocalDate.of(2026, 10, 20), "3000000.00", FlowClass.ESTIMATED, true, "Tirage de financement annulable");
         flow("FLOW-EU-OUT", "EU-BANK", "EU-TARGET-EUR", "EUR", LocalDate.of(2026, 10, 22), "-10000000.00", FlowClass.CONTRACTUAL, false, "Échéance de financement");
+        publishedIndicators();
         movement("MV-MATCH", "REF-EU-MM-1", "7000000.00");
         movement("MV-ORPHAN", "ORPHAN-1", "100.00");
         AuditEvent event = new AuditEvent();
@@ -125,9 +139,46 @@ public class SeedService implements CommandLineRunner {
         event.setAction("SEED");
         event.setSubjectType("LegalEntity");
         event.setSubjectId("GRP-TN-EU");
-        event.setDetail("Référentiel initial Tunisie et Union européenne");
+        event.setDetail("Référentiel BIAT et scénario de calcul Tunisie – Europe");
         store.insert(event);
         store.flush();
+    }
+
+    private void refreshBiatIdentity() {
+        store.find(LegalEntity.class, "TN-BANK").ifPresent(this::applyBiatIdentity);
+        store.find(Counterparty.class, "CP-TN-BANK").ifPresent(party -> party.setName(BIAT));
+        store.find(RegulatoryProfile.class, "PROF-TN").ifPresent(profile -> profile.setName("Profil BCT — BIAT"));
+    }
+
+    private void applyBiatIdentity(LegalEntity entity) {
+        entity.setLegalName(BIAT);
+        entity.setSwiftBic(BIAT_SWIFT);
+        entity.setHeadquarters(BIAT_HQ);
+        entity.setRegistration(BIAT_RC);
+        entity.setWebsite(BIAT_WEB);
+    }
+
+    private void publishedIndicators() {
+        published("PUB-BCT-CASH", "CASH_BCT_CCP_TGT", "Caisse et avoirs auprès de la BCT, CCP et TGT", "387138000.00");
+        published("PUB-BCT-BALANCES", "BALANCES_BCT", "Avoirs chez la BCT", "190689000.00");
+        published("PUB-BANKS", "DUE_FROM_BANKS", "Créances sur les établissements bancaires et financiers", "5000205000.00");
+        published("PUB-CUSTOMERS", "CUSTOMER_LOANS", "Créances sur la clientèle", "13068032000.00");
+    }
+
+    private void published(String id, String code, String label, String amount) {
+        if (store.find(PublishedIndicator.class, id).isPresent()) {
+            return;
+        }
+        PublishedIndicator row = new PublishedIndicator();
+        row.setId(id);
+        row.setEntityId("TN-BANK");
+        row.setCode(code);
+        row.setLabel(label);
+        row.setAmount(new BigDecimal(amount));
+        row.setCurrency("TND");
+        row.setAsOf(LocalDate.of(2025, 12, 31));
+        row.setSource(PUBLISHED_SOURCE);
+        store.insert(row);
     }
 
     private void jurisdiction(String code, String supervisor, String description) {
