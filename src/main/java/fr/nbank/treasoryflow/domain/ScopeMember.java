@@ -1,0 +1,26 @@
+package fr.nbank.treasoryflow.domain;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@Entity
+@Table(name = "tf_scope_member")
+public class ScopeMember {
+    @Id
+    @Column(length = 64)
+    private String id;
+
+    @Column(nullable = false, length = 64)
+    private String scopeId;
+
+    @Column(nullable = false, length = 64)
+    private String entityId;
+}

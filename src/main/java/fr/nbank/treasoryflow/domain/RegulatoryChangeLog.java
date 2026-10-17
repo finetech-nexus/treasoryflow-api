@@ -1,0 +1,39 @@
+package fr.nbank.treasoryflow.domain;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import java.time.Instant;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@Entity
+@Table(name = "tf_regulatory_change")
+public class RegulatoryChangeLog {
+    @Id
+    @Column(length = 64)
+    private String id;
+
+    @Column(nullable = false, length = 64)
+    private String ruleId;
+
+    @Column(length = 64)
+    private String fromVersion;
+
+    @Column(nullable = false, length = 64)
+    private String toVersion;
+
+    @Column(nullable = false, length = 500)
+    private String changeSummary;
+
+    @Column(nullable = false, length = 64)
+    private String actor;
+
+    @Column(nullable = false)
+    private Instant changedAt;
+}

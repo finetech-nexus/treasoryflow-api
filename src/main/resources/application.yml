@@ -1,0 +1,38 @@
+server:
+  port: 8108
+  error:
+    include-message: always
+
+spring:
+  application:
+    name: treasoryflow-api
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5436/treasoryflow}
+    username: ${SPRING_DATASOURCE_USERNAME:treasoryflow}
+    password: ${SPRING_DATASOURCE_PASSWORD:treasoryflow}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      initialization-fail-timeout: 120000
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
