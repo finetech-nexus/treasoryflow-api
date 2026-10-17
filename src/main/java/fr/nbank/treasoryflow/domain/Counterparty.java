@@ -25,6 +25,12 @@ public class Counterparty {
     @Column(nullable = false, length = 2)
     private String country;
 
+    @Column(length = 16)
+    private String swiftBic;
+
+    @Column(length = 160)
+    private String website;
+
     @Column(nullable = false, length = 16)
     private String status;
 

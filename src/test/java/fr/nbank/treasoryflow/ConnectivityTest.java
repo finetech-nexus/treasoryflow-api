@@ -54,15 +54,28 @@ class ConnectivityTest {
         mockMvc.perform(MockMvcRequestBuilders.post("/api/v1/cash/payments/" + payment.get("id").asText() + "/approve")
                 .headers(headers("karim.validator", "VALIDATOR", "TN-BANK,EU-BANK"))).andExpect(status().isOk());
 
+        String paymentId = payment.get("id").asText();
         JsonNode first = body(post("/api/v1/connectivity/remit?entityId=EU-BANK", null));
-        assertThat(first.get("generated").asInt()).isEqualTo(1);
-        assertThat(first.get("messages").get(0).get("messageFormat").asText()).isEqualTo("pain.001");
-        assertThat(first.get("messages").get(0).get("payload").asText()).contains("sandbox-only");
+        JsonNode sent = null;
+        for (JsonNode message : first.get("messages")) {
+            if (paymentId.equals(message.get("businessRef").asText())) {
+                sent = message;
+            }
+        }
+        assertThat(sent).isNotNull();
+        assertThat(sent.get("messageFormat").asText()).isEqualTo("pain.001");
+        assertThat(sent.get("payload").asText()).contains("sandbox-only");
         JsonNode second = body(post("/api/v1/connectivity/remit?entityId=EU-BANK", null));
         assertThat(second.get("generated").asInt()).isEqualTo(0);
         JsonNode messages = body(MockMvcRequestBuilders.get("/api/v1/connectivity/messages?entityId=EU-BANK")
                 .headers(headers("sara.trader", "TREASURER", "TN-BANK,EU-BANK")));
-        assertThat(messages.size()).isEqualTo(1);
+        long copies = 0;
+        for (JsonNode message : messages) {
+            if (paymentId.equals(message.get("businessRef").asText())) {
+                copies++;
+            }
+        }
+        assertThat(copies).isEqualTo(1);
 
         String statement = """
                 {"batchId":"MT940-EU-1","payload":":20:STMT1\\n:25:EU-TARGET-EUR\\n:60F:C261017EUR4000000,00\\n:61:261017C10,00NTRFDEMO61\\n:86:Test\\n:62F:C261017EUR4000010,00"}

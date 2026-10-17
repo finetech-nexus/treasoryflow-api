@@ -78,7 +78,7 @@ public class TreasuryController {
                 "pendingDeals", pending,
                 "validatedDeals", validated,
                 "published", references.publishedIndicators(),
-                "disclaimer", "Identité publique BIAT et états consolidés publiés au 31 décembre 2025. Les positions du scénario de calcul ne sont pas le bilan de la banque. Ce n'est pas une certification réglementaire.");
+                "disclaimer", "Nexus Bank. La place tunisienne reprend la liste publique du ministère des Finances. Les positions de travail ne sont pas les comptes de ces banques. Ce n'est pas une certification réglementaire.");
     }
 
     @GetMapping("/api/v1/entities")

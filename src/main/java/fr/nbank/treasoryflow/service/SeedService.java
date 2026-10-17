@@ -49,16 +49,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Component
 public class SeedService implements CommandLineRunner {
-    static final String BIAT = "BANQUE INTERNATIONALE ARABE DE TUNISIE — BIAT";
-    static final String BIAT_SWIFT = "BIATTNTTXXX";
-    static final String BIAT_HQ = "70-72 avenue Habib Bourguiba, 1000 Tunis";
-    static final String BIAT_RC = "B 187 88 1996";
-    static final String BIAT_WEB = "https://www.biat.com.tn";
-    static final String PUBLISHED_SOURCE =
-            "États financiers consolidés BIAT au 31 décembre 2025, publiés en milliers de dinars. Montant converti en dinars. Ce n'est pas le scénario de calcul du TMS.";
+    static final String NEXUS = "Nexus Bank";
 
     private static final String DISCLAIMER =
-            "Identité et indicateurs publics BIAT. Les pondérations du scénario restent à valider sur les textes consolidés. Ce profil n'est pas une certification réglementaire.";
+            "Profil de liquidité du périmètre tunisien de Nexus Bank. Les pondérations restent à valider sur les textes consolidés. Ce profil n'est pas une certification réglementaire.";
 
     private final TreasuryStore store;
 
@@ -70,8 +64,9 @@ public class SeedService implements CommandLineRunner {
     @Transactional
     public void run(String... args) {
         if (store.find(LegalEntity.class, "TN-BANK").isPresent()) {
-            refreshBiatIdentity();
-            publishedIndicators();
+            refreshNexusIdentity();
+            clearPublishedBooks();
+            tunisianBanks();
             cashServices();
             platform();
             store.flush();
@@ -79,19 +74,20 @@ public class SeedService implements CommandLineRunner {
         }
         jurisdiction("TN", "Banque centrale de Tunisie", "Profil de liquidité et de déclaration propre aux entités tunisiennes.");
         jurisdiction("EU", "BCE et autorité nationale compétente", "LCR, NSFR et reporting prudentiel européen, sans application automatique hors UE.");
-        profile("PROF-TN", "TN-BANK", Jurisdiction.TN, "Profil BCT — BIAT");
+        profile("PROF-TN", "TN-BANK", Jurisdiction.TN, "Profil BCT — Nexus Bank");
         profile("PROF-EU", "EU-BANK", Jurisdiction.EU, "Profil CRR");
-        entity("TN-BANK", BIAT, "TN", Jurisdiction.TN, "TND", "PROF-TN", true,
+        entity("TN-BANK", NEXUS, "TN", Jurisdiction.TN, "TND", "PROF-TN", true,
                 "Réglementation des changes et contrainte de liquidité locale : la trésorerie tunisienne n'est pas librement transférable vers une entité européenne.");
-        entity("EU-BANK", "Périmètre européen du scénario", "FR", Jurisdiction.EU, "EUR", "PROF-EU", false, null);
-        applyBiatIdentity(store.find(LegalEntity.class, "TN-BANK").orElseThrow());
+        entity("EU-BANK", "Nexus Bank — Europe", "FR", Jurisdiction.EU, "EUR", "PROF-EU", false, null);
+        applyNexusIdentity(store.find(LegalEntity.class, "TN-BANK").orElseThrow());
         account("TN-BCT-TND", "TN-BANK", "CP-BCT", "BCT-TND-001", "TND", "BCT");
         account("TN-NOSTRO-EUR", "TN-BANK", "CP-EU-BANK", "NOSTRO-EUR-001", "EUR", "NOSTRO");
         account("EU-TARGET-EUR", "EU-BANK", "CP-BNPP", "TARGET-EUR-001", "EUR", "TARGET");
         party("CP-BCT", "Banque centrale de Tunisie", "TN");
         party("CP-BNPP", "BNP Paribas", "FR");
-        party("CP-EU-BANK", "Périmètre européen du scénario", "FR");
-        party("CP-TN-BANK", BIAT, "TN");
+        party("CP-EU-BANK", "Nexus Bank — Europe", "FR");
+        party("CP-TN-BANK", NEXUS, "TN");
+        tunisianBanks();
         product("FX_SPOT", "Change au comptant", true);
         product("FX_FORWARD", "Change à terme", true);
         product("FX_SWAP", "Swap de change", true);
@@ -139,7 +135,6 @@ public class SeedService implements CommandLineRunner {
         deal();
         flow("FLOW-EU-FUND", "EU-BANK", "EU-TARGET-EUR", "EUR", LocalDate.of(2026, 10, 20), "3000000.00", FlowClass.ESTIMATED, true, "Tirage de financement annulable");
         flow("FLOW-EU-OUT", "EU-BANK", "EU-TARGET-EUR", "EUR", LocalDate.of(2026, 10, 22), "-10000000.00", FlowClass.CONTRACTUAL, false, "Échéance de financement");
-        publishedIndicators();
         cashServices();
         platform();
         movement("MV-MATCH", "REF-EU-MM-1", "7000000.00");
@@ -151,46 +146,77 @@ public class SeedService implements CommandLineRunner {
         event.setAction("SEED");
         event.setSubjectType("LegalEntity");
         event.setSubjectId("GRP-TN-EU");
-        event.setDetail("Référentiel BIAT et scénario de calcul Tunisie – Europe");
+        event.setDetail("Référentiel Nexus Bank et place bancaire tunisienne");
         store.insert(event);
         store.flush();
     }
 
-    private void refreshBiatIdentity() {
-        store.find(LegalEntity.class, "TN-BANK").ifPresent(this::applyBiatIdentity);
-        store.find(Counterparty.class, "CP-TN-BANK").ifPresent(party -> party.setName(BIAT));
-        store.find(RegulatoryProfile.class, "PROF-TN").ifPresent(profile -> profile.setName("Profil BCT — BIAT"));
+    private void refreshNexusIdentity() {
+        store.find(LegalEntity.class, "TN-BANK").ifPresent(this::applyNexusIdentity);
+        store.find(LegalEntity.class, "EU-BANK").ifPresent(entity -> entity.setLegalName("Nexus Bank — Europe"));
+        store.find(Counterparty.class, "CP-TN-BANK").ifPresent(party -> party.setName(NEXUS));
+        store.find(Counterparty.class, "CP-EU-BANK").ifPresent(party -> party.setName("Nexus Bank — Europe"));
+        store.find(RegulatoryProfile.class, "PROF-TN").ifPresent(profile -> profile.setName("Profil BCT — Nexus Bank"));
+        store.find(CashPool.class, "POOL-TND").ifPresent(pool -> pool.setName("Pool TND notionnel"));
     }
 
-    private void applyBiatIdentity(LegalEntity entity) {
-        entity.setLegalName(BIAT);
-        entity.setSwiftBic(BIAT_SWIFT);
-        entity.setHeadquarters(BIAT_HQ);
-        entity.setRegistration(BIAT_RC);
-        entity.setWebsite(BIAT_WEB);
+    private void applyNexusIdentity(LegalEntity entity) {
+        entity.setLegalName(NEXUS);
+        entity.setSwiftBic(null);
+        entity.setHeadquarters("Périmètre de trésorerie, Tunisie");
+        entity.setRegistration(null);
+        entity.setWebsite(null);
     }
 
-    private void publishedIndicators() {
-        published("PUB-BCT-CASH", "CASH_BCT_CCP_TGT", "Caisse et avoirs auprès de la BCT, CCP et TGT", "387138000.00");
-        published("PUB-BCT-BALANCES", "BALANCES_BCT", "Avoirs chez la BCT", "190689000.00");
-        published("PUB-BANKS", "DUE_FROM_BANKS", "Créances sur les établissements bancaires et financiers", "5000205000.00");
-        published("PUB-CUSTOMERS", "CUSTOMER_LOANS", "Créances sur la clientèle", "13068032000.00");
+    private void clearPublishedBooks() {
+        for (String id : java.util.List.of("PUB-BCT-CASH", "PUB-BCT-BALANCES", "PUB-BANKS", "PUB-CUSTOMERS")) {
+            store.find(PublishedIndicator.class, id).ifPresent(store::remove);
+        }
     }
 
-    private void published(String id, String code, String label, String amount) {
-        if (store.find(PublishedIndicator.class, id).isPresent()) {
+    private void tunisianBanks() {
+        bank("CP-BK-STB", "Société Tunisienne de Banque", "STBKTNTT", "https://www.stb.com.tn");
+        bank("CP-BK-BNA", "Banque Nationale Agricole", "BNTETNTT", "https://www.bna.com.tn");
+        bank("CP-BK-BH", "Banque de l'Habitat", "BHBKTNTT", "https://www.bh.com.tn");
+        bank("CP-BK-BFPME", "Banque de Financement des Petites et Moyennes Entreprises", null, "https://www.bfpme.com.tn");
+        bank("CP-BK-BTS", "Banque Tunisienne de Solidarité", null, "https://www.bts.com.tn");
+        bank("CP-BK-BTE", "Banque de Tunisie et des Emirats", "BTEXTNTT", "https://www.bte.com.tn");
+        bank("CP-BK-BTL", "Banque Tuniso-Libyenne", "ATLDTNTT", "https://www.btl.com.tn");
+        bank("CP-BK-TSB", "Tunisian Saudi Bank", "TSIDTNTT", "https://www.stusidbank.com.tn");
+        bank("CP-BK-ZITOUNA", "Banque Zitouna", "BZITTNTT", "https://www.banquezitouna.com");
+        bank("CP-BK-BARAKA", "Al Baraka Bank", null, "https://www.albarakabank.com.tn");
+        bank("CP-BK-WIFAK", "Al Wifak International Bank", "WKIBTNTT", "https://www.wifakbank.com");
+        bank("CP-BK-AMEN", "Amen Bank", "CFCTTNTT", "https://www.amenbank.com.tn");
+        bank("CP-BK-ATTIJARI", "Attijari Bank", "BSTUTNTT", "https://www.attijaribank.com.tn");
+        bank("CP-BK-ATB", "Arab Tunisian Bank", "ATBKTNTT", "https://www.atb.com.tn");
+        bank("CP-BK-ABC", "Bank ABC Tunisie", null, "https://www.bank-abc.com");
+        bank("CP-BK-BIAT", "Banque Internationale Arabe de Tunisie", "BIATTNTT", "https://www.biat.com.tn");
+        bank("CP-BK-BT", "Banque de Tunisie", "BTBKTNTT", "https://www.bt.com.tn");
+        bank("CP-BK-BTK", "Banque Tuniso Koweitienne", "BTKOTNTI", "https://www.btknet.com");
+        bank("CP-BK-BFT", "Banque Franco Tunisienne", null, null);
+        bank("CP-BK-CITI", "Citi Bank", null, null);
+        bank("CP-BK-QNB", "Qatar National Bank-Tunis", "BTQITNTI", "https://www.qnb.com.tn");
+        bank("CP-BK-UBCI", "Union Bancaire de Commerce et d'Industrie", null, "https://www.ubcinet.net");
+        bank("CP-BK-UIB", "Union Internationale de Banque", null, "https://www.uib.com.tn");
+    }
+
+    private void bank(String id, String name, String swift, String website) {
+        Counterparty party = store.find(Counterparty.class, id).orElse(null);
+        if (party == null) {
+            party = new Counterparty();
+            party.setId(id);
+            party.setCountry("TN");
+            party.setStatus("ACTIVE");
+            party.setValidFrom(LocalDate.of(2020, 1, 1));
+            party.setName(name);
+            party.setSwiftBic(swift);
+            party.setWebsite(website);
+            store.insert(party);
             return;
         }
-        PublishedIndicator row = new PublishedIndicator();
-        row.setId(id);
-        row.setEntityId("TN-BANK");
-        row.setCode(code);
-        row.setLabel(label);
-        row.setAmount(new BigDecimal(amount));
-        row.setCurrency("TND");
-        row.setAsOf(LocalDate.of(2025, 12, 31));
-        row.setSource(PUBLISHED_SOURCE);
-        store.insert(row);
+        party.setName(name);
+        party.setSwiftBic(swift);
+        party.setWebsite(website);
     }
 
     private void cashServices() {
@@ -210,7 +236,7 @@ public class SeedService implements CommandLineRunner {
         if (store.find(CashPool.class, "POOL-TND").isEmpty()) {
             CashPool pool = new CashPool();
             pool.setId("POOL-TND");
-            pool.setName("Pool TND notionnel BIAT");
+            pool.setName("Pool TND notionnel");
             pool.setCurrency("TND");
             pool.setHeaderEntityId("TN-BANK");
             pool.setHeaderAccountId("TN-BCT-TND");

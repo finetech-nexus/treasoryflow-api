@@ -39,6 +39,10 @@ public class TreasuryStore {
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
+    public void remove(Object entity) {
+        em.remove(entity);
+    }
+
     public void flush() {
         em.flush();
     }
