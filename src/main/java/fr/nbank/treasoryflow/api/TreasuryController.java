@@ -3,14 +3,20 @@ package fr.nbank.treasoryflow.api;
 import fr.nbank.treasoryflow.api.ApiTypes.DealRequest;
 import fr.nbank.treasoryflow.api.ApiTypes.FlowRequest;
 import fr.nbank.treasoryflow.api.ApiTypes.ImportRequest;
+import fr.nbank.treasoryflow.api.ApiTypes.ParameterChange;
 import fr.nbank.treasoryflow.api.ApiTypes.PaymentRequest;
+import fr.nbank.treasoryflow.api.ApiTypes.ProfileChange;
 import fr.nbank.treasoryflow.api.ApiTypes.ProjectRequest;
+import fr.nbank.treasoryflow.api.ApiTypes.RouteRequest;
+import fr.nbank.treasoryflow.api.ApiTypes.StatementRequest;
 import fr.nbank.treasoryflow.domain.BusinessClock;
 import fr.nbank.treasoryflow.domain.CashPosition;
 import fr.nbank.treasoryflow.domain.Codes.DealStatus;
 import fr.nbank.treasoryflow.domain.Codes.PositionKind;
 import fr.nbank.treasoryflow.domain.TreasuryDeal;
+import fr.nbank.treasoryflow.domain.ConnectivityChannel;
 import fr.nbank.treasoryflow.service.CashManagementService;
+import fr.nbank.treasoryflow.service.ConnectivityService;
 import fr.nbank.treasoryflow.service.CashManagementService.PaymentSubmit;
 import fr.nbank.treasoryflow.service.DealService;
 import fr.nbank.treasoryflow.service.DealService.SubmitOutcome;
@@ -40,9 +46,11 @@ public class TreasuryController {
     private final GroupService group;
     private final ReconciliationService reconciliation;
     private final CashManagementService cash;
+    private final ConnectivityService connectivity;
 
     public TreasuryController(ReferenceService references, DealService deals, ImportService imports,
-            ForecastService forecasts, GroupService group, ReconciliationService reconciliation, CashManagementService cash) {
+            ForecastService forecasts, GroupService group, ReconciliationService reconciliation, CashManagementService cash,
+            ConnectivityService connectivity) {
         this.references = references;
         this.deals = deals;
         this.imports = imports;
@@ -50,6 +58,7 @@ public class TreasuryController {
         this.group = group;
         this.reconciliation = reconciliation;
         this.cash = cash;
+        this.connectivity = connectivity;
     }
 
     @GetMapping("/api/v1/dashboard")
@@ -252,13 +261,61 @@ public class TreasuryController {
 
     @GetMapping("/api/v1/interfaces")
     public List<Map<String, String>> interfaces() {
-        return List.of(
-                Map.of("code", "CORE_BANKING", "protocol", "API", "status", "ACTIVE", "activation", "Soldes et mouvements du core, avec lot idempotent."),
-                Map.of("code", "ACCOUNTING", "protocol", "API", "status", "INACTIVE", "activation", "Les écritures définitives restent transmises au système comptable officiel."),
-                Map.of("code", "SEPA", "protocol", "ISO 20022", "status", "INACTIVE", "activation", "Activé seulement si le périmètre, les accès et les obligations de l'entité l'exigent."),
-                Map.of("code", "TARGET", "protocol", "ISO 20022", "status", "INACTIVE", "activation", "Activé seulement pour les entités qui participent à l'infrastructure."),
-                Map.of("code", "SWIFT", "protocol", "MT/MX", "status", "INACTIVE", "activation", "Activé seulement si le périmètre correspondant l'exige."),
-                Map.of("code", "SIBTEL", "protocol", "Fichier", "status", "INACTIVE", "activation", "Paiements tunisiens : à activer selon les systèmes réellement utilisés."),
-                Map.of("code", "IAM", "protocol", "OIDC", "status", "SEAM", "activation", "L'API attend l'identité propagée par la passerelle. Le sélecteur de la console est un bac à sable."));
+        List<Map<String, String>> rows = new java.util.ArrayList<>();
+        for (ConnectivityChannel channel : connectivity.channels()) {
+            rows.add(Map.of(
+                    "code", channel.getCode(),
+                    "protocol", channel.getProtocol(),
+                    "status", channel.getStatus(),
+                    "activation", channel.getNotice()));
+        }
+        rows.add(Map.of("code", "IAM", "protocol", "OIDC", "status", "SEAM",
+                "activation", "L'API attend l'identité propagée par la passerelle. Le sélecteur de la console est un bac à sable."));
+        return rows;
+    }
+
+    @GetMapping("/api/v1/platform/channels")
+    public Object platformChannels() {
+        return connectivity.channels();
+    }
+
+    @GetMapping("/api/v1/platform/parameters")
+    public Object platformParameters() {
+        return connectivity.parameters();
+    }
+
+    @GetMapping("/api/v1/platform/profiles")
+    public Object platformProfiles() {
+        return connectivity.profiles();
+    }
+
+    @PostMapping("/api/v1/platform/parameters/{code}")
+    public Object updateParameter(@PathVariable String code, @Valid @RequestBody ParameterChange change) {
+        return connectivity.updateParameter(code, change.value());
+    }
+
+    @PostMapping("/api/v1/platform/profiles/{id}")
+    public Object updateProfile(@PathVariable String id, @Valid @RequestBody ProfileChange change) {
+        return connectivity.updateProfile(id, change.rule(), change.channelCode());
+    }
+
+    @PostMapping("/api/v1/connectivity/route")
+    public Object route(@Valid @RequestBody RouteRequest request) {
+        return connectivity.decide(request);
+    }
+
+    @PostMapping("/api/v1/connectivity/remit")
+    public Object remit(@RequestParam String entityId) {
+        return connectivity.remit(entityId);
+    }
+
+    @GetMapping("/api/v1/connectivity/messages")
+    public Object messages(@RequestParam(required = false) String entityId) {
+        return connectivity.messages(entityId);
+    }
+
+    @PostMapping("/api/v1/connectivity/statements")
+    public Object statement(@Valid @RequestBody StatementRequest request) {
+        return connectivity.ingestStatement(request.batchId(), request.payload());
     }
 }

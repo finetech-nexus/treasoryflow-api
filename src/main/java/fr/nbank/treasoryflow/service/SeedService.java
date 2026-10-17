@@ -17,6 +17,7 @@ import fr.nbank.treasoryflow.domain.Codes.LimitAction;
 import fr.nbank.treasoryflow.domain.Codes.PaymentPurpose;
 import fr.nbank.treasoryflow.domain.Codes.PoolType;
 import fr.nbank.treasoryflow.domain.Codes.PositionKind;
+import fr.nbank.treasoryflow.domain.ConnectivityChannel;
 import fr.nbank.treasoryflow.domain.Counterparty;
 import fr.nbank.treasoryflow.domain.ExposureLimit;
 import fr.nbank.treasoryflow.domain.ForecastFlow;
@@ -26,6 +27,8 @@ import fr.nbank.treasoryflow.domain.IntercompanyFlow;
 import fr.nbank.treasoryflow.domain.LegalEntity;
 import fr.nbank.treasoryflow.domain.LiquidityItem;
 import fr.nbank.treasoryflow.domain.PaymentOrder;
+import fr.nbank.treasoryflow.domain.PaymentProfile;
+import fr.nbank.treasoryflow.domain.PlatformParameter;
 import fr.nbank.treasoryflow.domain.PublishedIndicator;
 import fr.nbank.treasoryflow.domain.RegulatoryChangeLog;
 import fr.nbank.treasoryflow.domain.RegulatoryJurisdiction;
@@ -70,6 +73,7 @@ public class SeedService implements CommandLineRunner {
             refreshBiatIdentity();
             publishedIndicators();
             cashServices();
+            platform();
             store.flush();
             return;
         }
@@ -137,6 +141,7 @@ public class SeedService implements CommandLineRunner {
         flow("FLOW-EU-OUT", "EU-BANK", "EU-TARGET-EUR", "EUR", LocalDate.of(2026, 10, 22), "-10000000.00", FlowClass.CONTRACTUAL, false, "Échéance de financement");
         publishedIndicators();
         cashServices();
+        platform();
         movement("MV-MATCH", "REF-EU-MM-1", "7000000.00");
         movement("MV-ORPHAN", "ORPHAN-1", "100.00");
         AuditEvent event = new AuditEvent();
@@ -229,6 +234,88 @@ public class SeedService implements CommandLineRunner {
             payment.setCreatedAt(Instant.parse("2026-10-17T08:30:00Z"));
             store.insert(payment);
         }
+    }
+
+    private void platform() {
+        parameter("SGMT_FLOOR_TND", "100000.00", "TND", "Seuil clientèle du SGMT, système RTGS de la BCT");
+        parameter("TARGET_FLOOR_EUR", "1000000.00", "EUR", "Seuil à partir duquel un paiement européen part en TARGET");
+        parameter("SIBTEL_LAG_DAYS", "1.00", "DAY", "Dénouement de la télécompensation SIBTEL");
+        parameter("SGMT_CUTOFF", "16:30", "Africa/Tunis", "Heure limite de remise SGMT");
+        parameter("SIBTEL_CUTOFF", "12:00", "Africa/Tunis", "Heure limite de remise télécompensation");
+        String notice = "Adaptateur du bac à sable. Le message est produit ici et n'est pas émis vers le réseau.";
+        channel("CH-SGMT", "SGMT", "Règlement brut BCT", "TN", "TND", "ISO 20022", "pacs.008", "OUT", "ACTIVE",
+                "100000.00", null, "16:30", 0, notice);
+        channel("CH-SIBTEL", "SIBTEL", "Télécompensation", "TN", "TND", "Fichier", "VIR-COMP", "OUT", "ACTIVE",
+                null, "99999.99", "12:00", 1, notice);
+        channel("CH-SWIFT", "SWIFT", "Correspondant international", "*", "*", "MT", "MT103", "BOTH", "ACTIVE",
+                null, null, "17:00", 2, notice);
+        channel("CH-SEPA", "SEPA", "Virement européen", "EU", "EUR", "ISO 20022", "pain.001", "OUT", "ACTIVE",
+                null, null, "15:30", 1, notice);
+        channel("CH-TARGET", "TARGET", "Gros montant européen", "EU", "EUR", "ISO 20022", "pacs.008", "OUT", "ACTIVE",
+                "1000000.00", null, "17:00", 0, notice);
+        channel("CH-CORE", "CORE_BANKING", "Core bancaire", "*", "*", "API", "NEXUS-CORE", "IN", "ACTIVE",
+                null, null, null, 0, "Lots de soldes et de mouvements, rejouables sans doublon.");
+        channel("CH-MT940", "MT940", "Relevé de fin de journée", "*", "*", "MT", "MT940", "IN", "ACTIVE",
+                null, null, "20:00", 0, notice);
+        channel("CH-CAMT", "CAMT053", "Relevé ISO 20022", "*", "*", "ISO 20022", "camt.053", "IN", "READY",
+                null, null, "20:00", 0, "Réservé. L'import actif du bac à sable est le MT940.");
+        channel("CH-GL", "ACCOUNTING", "Journal comptable", "*", "*", "API", "JOURNAL", "OUT", "READY",
+                null, null, null, 0, "Les écritures définitives restent dans le système comptable officiel.");
+        profile("PRF-TN-SALARY", "SALARY", "TN", "TND", "FIXED", "SIBTEL");
+        profile("PRF-TN-TREASURY", "TREASURY_TRANSFER", "TN", "TND", "FIXED", "SGMT");
+        profile("PRF-TN-SUPPLIER", "SUPPLIER", "TN", "TND", "BY_AMOUNT", null);
+        profile("PRF-TN-TAX", "TAX", "TN", "TND", "BY_AMOUNT", null);
+        profile("PRF-EU-SUPPLIER", "SUPPLIER", "EU", "EUR", "BY_AMOUNT", null);
+        profile("PRF-TN-SWIFT", "SUPPLIER", "TN", "EUR", "FIXED", "SWIFT");
+    }
+
+    private void parameter(String code, String value, String unit, String label) {
+        if (store.find(PlatformParameter.class, code).isPresent()) {
+            return;
+        }
+        PlatformParameter parameter = new PlatformParameter();
+        parameter.setCode(code);
+        parameter.setValue(value);
+        parameter.setUnit(unit);
+        parameter.setLabel(label);
+        store.insert(parameter);
+    }
+
+    private void channel(String id, String code, String name, String jurisdiction, String currency, String protocol,
+            String format, String direction, String status, String min, String max, String cutoff, int lag, String notice) {
+        if (store.find(ConnectivityChannel.class, id).isPresent()) {
+            return;
+        }
+        ConnectivityChannel channel = new ConnectivityChannel();
+        channel.setId(id);
+        channel.setCode(code);
+        channel.setName(name);
+        channel.setJurisdiction(jurisdiction);
+        channel.setCurrency(currency);
+        channel.setProtocol(protocol);
+        channel.setMessageFormat(format);
+        channel.setDirection(direction);
+        channel.setStatus(status);
+        channel.setMinAmount(min == null ? null : new BigDecimal(min));
+        channel.setMaxAmount(max == null ? null : new BigDecimal(max));
+        channel.setCutoff(cutoff);
+        channel.setSettlementLagDays(lag);
+        channel.setNotice(notice);
+        store.insert(channel);
+    }
+
+    private void profile(String id, String purpose, String jurisdiction, String currency, String rule, String channelCode) {
+        if (store.find(PaymentProfile.class, id).isPresent()) {
+            return;
+        }
+        PaymentProfile profile = new PaymentProfile();
+        profile.setId(id);
+        profile.setPurpose(purpose);
+        profile.setJurisdiction(jurisdiction);
+        profile.setCurrency(currency);
+        profile.setRule(rule);
+        profile.setChannelCode(channelCode);
+        store.insert(profile);
     }
 
     private void poolMember(String id, String poolId, String entityId, String accountId) {

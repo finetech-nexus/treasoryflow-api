@@ -124,6 +124,19 @@ public final class ApiTypes {
 
     public record ReplayView(String runId, BigDecimal storedResult, BigDecimal replayedResult, boolean matched, String inputSnapshotHash) {}
 
+    public record RouteRequest(
+            @NotBlank String entityId,
+            @NotBlank String currency,
+            @NotNull BigDecimal amount,
+            @NotBlank String purpose,
+            String beneficiaryEntityId) {}
+
+    public record ParameterChange(@NotBlank String value) {}
+
+    public record ProfileChange(@NotBlank String rule, String channelCode) {}
+
+    public record StatementRequest(@NotBlank String batchId, @NotBlank String payload) {}
+
     public record PaymentRequest(
             @NotBlank String entityId,
             @NotBlank String debitAccountId,
