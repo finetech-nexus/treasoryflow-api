@@ -123,4 +123,14 @@ public final class ApiTypes {
     public record GapBucket(String bucket, String currency, BigDecimal asset, BigDecimal liability, BigDecimal gap) {}
 
     public record ReplayView(String runId, BigDecimal storedResult, BigDecimal replayedResult, boolean matched, String inputSnapshotHash) {}
+
+    public record PaymentRequest(
+            @NotBlank String entityId,
+            @NotBlank String debitAccountId,
+            @NotBlank String beneficiaryName,
+            String beneficiaryEntityId,
+            @NotBlank String currency,
+            @NotNull BigDecimal amount,
+            @NotNull LocalDate valueDate,
+            @NotBlank String purpose) {}
 }

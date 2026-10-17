@@ -3,12 +3,15 @@ package fr.nbank.treasoryflow.api;
 import fr.nbank.treasoryflow.api.ApiTypes.DealRequest;
 import fr.nbank.treasoryflow.api.ApiTypes.FlowRequest;
 import fr.nbank.treasoryflow.api.ApiTypes.ImportRequest;
+import fr.nbank.treasoryflow.api.ApiTypes.PaymentRequest;
 import fr.nbank.treasoryflow.api.ApiTypes.ProjectRequest;
 import fr.nbank.treasoryflow.domain.BusinessClock;
 import fr.nbank.treasoryflow.domain.CashPosition;
 import fr.nbank.treasoryflow.domain.Codes.DealStatus;
 import fr.nbank.treasoryflow.domain.Codes.PositionKind;
 import fr.nbank.treasoryflow.domain.TreasuryDeal;
+import fr.nbank.treasoryflow.service.CashManagementService;
+import fr.nbank.treasoryflow.service.CashManagementService.PaymentSubmit;
 import fr.nbank.treasoryflow.service.DealService;
 import fr.nbank.treasoryflow.service.DealService.SubmitOutcome;
 import fr.nbank.treasoryflow.service.ForecastService;
@@ -36,15 +39,17 @@ public class TreasuryController {
     private final ForecastService forecasts;
     private final GroupService group;
     private final ReconciliationService reconciliation;
+    private final CashManagementService cash;
 
     public TreasuryController(ReferenceService references, DealService deals, ImportService imports,
-            ForecastService forecasts, GroupService group, ReconciliationService reconciliation) {
+            ForecastService forecasts, GroupService group, ReconciliationService reconciliation, CashManagementService cash) {
         this.references = references;
         this.deals = deals;
         this.imports = imports;
         this.forecasts = forecasts;
         this.group = group;
         this.reconciliation = reconciliation;
+        this.cash = cash;
     }
 
     @GetMapping("/api/v1/dashboard")
@@ -207,6 +212,42 @@ public class TreasuryController {
                 Map.of("id", "JUR-ISO", "module", "TN-002", "statement", "Une formule européenne n'est pas appliquée à une entité tunisienne, ni l'inverse."),
                 Map.of("id", "REC-GRP-001", "module", "GRP-002", "statement", "Les flux intragroupe équilibrés sont éliminés une seule fois."),
                 Map.of("id", "REC-GRP-002", "module", "GRP-003", "statement", "Une liquidité sous restriction n'est pas proposée comme librement transférable."));
+    }
+
+    @GetMapping("/api/v1/cash/worksheet")
+    public Object worksheet(@RequestParam String entityId, @RequestParam(required = false) LocalDate asOf) {
+        return cash.worksheet(entityId, asOf == null ? BusinessClock.REPORTING_DATE : asOf);
+    }
+
+    @GetMapping("/api/v1/cash/payments")
+    public Object payments(@RequestParam(required = false) String entityId) {
+        return cash.payments(entityId);
+    }
+
+    @PostMapping("/api/v1/cash/payments")
+    public Object createPayment(@Valid @RequestBody PaymentRequest request) {
+        return cash.createPayment(request);
+    }
+
+    @PostMapping("/api/v1/cash/payments/{id}/submit")
+    public ResponseEntity<PaymentSubmit> submitPayment(@PathVariable String id) {
+        PaymentSubmit outcome = cash.submitPayment(id);
+        return ResponseEntity.status(outcome.blocked() ? 409 : 200).body(outcome);
+    }
+
+    @PostMapping("/api/v1/cash/payments/{id}/approve")
+    public Object approvePayment(@PathVariable String id) {
+        return cash.approvePayment(id);
+    }
+
+    @GetMapping("/api/v1/cash/pools")
+    public Object pools() {
+        return cash.pools();
+    }
+
+    @PostMapping("/api/v1/cash/pools/{id}/sweep")
+    public Object sweep(@PathVariable String id, @RequestParam(required = false) LocalDate asOf) {
+        return cash.sweep(id, asOf == null ? BusinessClock.REPORTING_DATE : asOf);
     }
 
     @GetMapping("/api/v1/interfaces")

@@ -50,4 +50,12 @@ public final class Codes {
     public enum RecommendationStatus {
         DRAFT, APPROVED, REJECTED
     }
+
+    public enum PaymentPurpose {
+        SUPPLIER, SALARY, TAX, TREASURY_TRANSFER, INTERCOMPANY
+    }
+
+    public enum PoolType {
+        NOTIONAL, PHYSICAL
+    }
 }

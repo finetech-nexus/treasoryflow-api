@@ -5,6 +5,8 @@ import static fr.nbank.treasoryflow.domain.BusinessClock.REPORTING_DATE;
 import fr.nbank.treasoryflow.domain.AuditEvent;
 import fr.nbank.treasoryflow.domain.BankAccount;
 import fr.nbank.treasoryflow.domain.BucketClassification;
+import fr.nbank.treasoryflow.domain.CashPool;
+import fr.nbank.treasoryflow.domain.CashPoolMember;
 import fr.nbank.treasoryflow.domain.CashPosition;
 import fr.nbank.treasoryflow.domain.Codes.ApprovalStatus;
 import fr.nbank.treasoryflow.domain.Codes.DealStatus;
@@ -12,6 +14,8 @@ import fr.nbank.treasoryflow.domain.Codes.FlowClass;
 import fr.nbank.treasoryflow.domain.Codes.FormulaCode;
 import fr.nbank.treasoryflow.domain.Codes.Jurisdiction;
 import fr.nbank.treasoryflow.domain.Codes.LimitAction;
+import fr.nbank.treasoryflow.domain.Codes.PaymentPurpose;
+import fr.nbank.treasoryflow.domain.Codes.PoolType;
 import fr.nbank.treasoryflow.domain.Codes.PositionKind;
 import fr.nbank.treasoryflow.domain.Counterparty;
 import fr.nbank.treasoryflow.domain.ExposureLimit;
@@ -21,6 +25,7 @@ import fr.nbank.treasoryflow.domain.GroupConsolidationScope;
 import fr.nbank.treasoryflow.domain.IntercompanyFlow;
 import fr.nbank.treasoryflow.domain.LegalEntity;
 import fr.nbank.treasoryflow.domain.LiquidityItem;
+import fr.nbank.treasoryflow.domain.PaymentOrder;
 import fr.nbank.treasoryflow.domain.PublishedIndicator;
 import fr.nbank.treasoryflow.domain.RegulatoryChangeLog;
 import fr.nbank.treasoryflow.domain.RegulatoryJurisdiction;
@@ -64,6 +69,7 @@ public class SeedService implements CommandLineRunner {
         if (store.find(LegalEntity.class, "TN-BANK").isPresent()) {
             refreshBiatIdentity();
             publishedIndicators();
+            cashServices();
             store.flush();
             return;
         }
@@ -130,6 +136,7 @@ public class SeedService implements CommandLineRunner {
         flow("FLOW-EU-FUND", "EU-BANK", "EU-TARGET-EUR", "EUR", LocalDate.of(2026, 10, 20), "3000000.00", FlowClass.ESTIMATED, true, "Tirage de financement annulable");
         flow("FLOW-EU-OUT", "EU-BANK", "EU-TARGET-EUR", "EUR", LocalDate.of(2026, 10, 22), "-10000000.00", FlowClass.CONTRACTUAL, false, "Échéance de financement");
         publishedIndicators();
+        cashServices();
         movement("MV-MATCH", "REF-EU-MM-1", "7000000.00");
         movement("MV-ORPHAN", "ORPHAN-1", "100.00");
         AuditEvent event = new AuditEvent();
@@ -179,6 +186,58 @@ public class SeedService implements CommandLineRunner {
         row.setAsOf(LocalDate.of(2025, 12, 31));
         row.setSource(PUBLISHED_SOURCE);
         store.insert(row);
+    }
+
+    private void cashServices() {
+        if (store.find(CashPool.class, "POOL-EUR").isEmpty()) {
+            CashPool pool = new CashPool();
+            pool.setId("POOL-EUR");
+            pool.setName("Pool EUR physique");
+            pool.setCurrency("EUR");
+            pool.setHeaderEntityId("EU-BANK");
+            pool.setHeaderAccountId("EU-TARGET-EUR");
+            pool.setType(PoolType.PHYSICAL);
+            pool.setStatus("ACTIVE");
+            store.insert(pool);
+            poolMember("POOL-EUR-EU", "POOL-EUR", "EU-BANK", "EU-TARGET-EUR");
+            poolMember("POOL-EUR-TN", "POOL-EUR", "TN-BANK", "TN-NOSTRO-EUR");
+        }
+        if (store.find(CashPool.class, "POOL-TND").isEmpty()) {
+            CashPool pool = new CashPool();
+            pool.setId("POOL-TND");
+            pool.setName("Pool TND notionnel BIAT");
+            pool.setCurrency("TND");
+            pool.setHeaderEntityId("TN-BANK");
+            pool.setHeaderAccountId("TN-BCT-TND");
+            pool.setType(PoolType.NOTIONAL);
+            pool.setStatus("ACTIVE");
+            store.insert(pool);
+            poolMember("POOL-TND-BCT", "POOL-TND", "TN-BANK", "TN-BCT-TND");
+        }
+        if (store.find(PaymentOrder.class, "PAY-EU-SUP-1").isEmpty()) {
+            PaymentOrder payment = new PaymentOrder();
+            payment.setId("PAY-EU-SUP-1");
+            payment.setEntityId("EU-BANK");
+            payment.setDebitAccountId("EU-TARGET-EUR");
+            payment.setBeneficiaryName("Fournisseur européen");
+            payment.setCurrency("EUR");
+            payment.setAmount(new BigDecimal("250000.00"));
+            payment.setValueDate(REPORTING_DATE);
+            payment.setPurpose(PaymentPurpose.SUPPLIER);
+            payment.setStatus(DealStatus.DRAFT);
+            payment.setCreatedBy("system.treasury");
+            payment.setCreatedAt(Instant.parse("2026-10-17T08:30:00Z"));
+            store.insert(payment);
+        }
+    }
+
+    private void poolMember(String id, String poolId, String entityId, String accountId) {
+        CashPoolMember member = new CashPoolMember();
+        member.setId(id);
+        member.setPoolId(poolId);
+        member.setEntityId(entityId);
+        member.setAccountId(accountId);
+        store.insert(member);
     }
 
     private void jurisdiction(String code, String supervisor, String description) {
